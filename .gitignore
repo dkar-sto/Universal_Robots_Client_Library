@@ -7,4 +7,5 @@ install_manifest.txt
 .idea
 .directory
 .vscode
+.cache
 build/
