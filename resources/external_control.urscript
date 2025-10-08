@@ -769,96 +769,117 @@ control_mode = MODE_UNINITIALIZED
 thread_move = 0
 thread_trajectory = 0
 trajectory_points_left = 0
+
 textmsg("ExternalControl: External control active")
 global read_timeout = 0.0 # First read is blocking
 thread_script_commands = run script_commands()
+
+def cleanup_previous_mode(previous_mode):
+  if previous_mode == MODE_FORWARD:
+    kill thread_trajectory
+    if trajectory_points_left > 0:
+      clear_remaining_trajectory_points()
+      stopj(STOPJ_ACCELERATION)
+      socket_send_int(TRAJECTORY_RESULT_CANCELED, "trajectory_socket")
+    end
+  elif previous_mode == MODE_FREEDRIVE:
+    textmsg("Leaving freedrive mode")
+    end_freedrive_mode()
+  end
+
+  # For most modes, we join the move thread to ensure it has exited.
+  if previous_mode != MODE_TOOL_IN_CONTACT:
+    join thread_move
+  end
+end
+
+def initialize_new_mode(new_mode):
+  if new_mode == MODE_SERVOJ:
+    cmd_servo_q = get_joint_positions()
+    thread_move = run servoThread()
+  elif new_mode == MODE_SPEEDJ:
+    thread_move = run speedThread()
+  elif new_mode == MODE_FORWARD:
+    kill thread_move
+    stopj(STOPJ_ACCELERATION)
+  elif new_mode == MODE_SPEEDL:
+    thread_move = run speedlThread()
+  elif new_mode == MODE_POSE:
+    cmd_servo_q = get_joint_positions()
+    thread_move = run servoThreadP()
+  end
+end
+
+def process_command(current_mode, params):
+  if current_mode == MODE_SERVOJ:
+    q = [params[2] / MULT_jointstate, params[3] / MULT_jointstate, params[4] / MULT_jointstate, params[5] / MULT_jointstate, params[6] / MULT_jointstate, params[7] / MULT_jointstate]
+    set_servo_setpoint(q)
+  elif current_mode == MODE_SPEEDJ:
+    qd = [params[2] / MULT_jointstate, params[3] / MULT_jointstate, params[4] / MULT_jointstate, params[5] / MULT_jointstate, params[6] / MULT_jointstate, params[7] / MULT_jointstate]
+    set_speed(qd)
+  elif current_mode == MODE_FORWARD:
+    if params[2] == TRAJECTORY_MODE_RECEIVE:
+      kill thread_trajectory
+      clear_remaining_trajectory_points()
+      trajectory_points_left = params[3]
+      thread_trajectory = run trajectoryThread()
+    elif params[2] == TRAJECTORY_MODE_CANCEL:
+      textmsg("cancel received")
+      kill thread_trajectory
+      clear_remaining_trajectory_points()
+      stopj(STOPJ_ACCELERATION)
+      socket_send_int(TRAJECTORY_RESULT_CANCELED, "trajectory_socket")
+    end
+  elif current_mode == MODE_SPEEDL:
+    twist = [params[2] / MULT_jointstate, params[3] / MULT_jointstate, params[4] / MULT_jointstate, params[5] / MULT_jointstate, params[6] / MULT_jointstate, params[7] / MULT_jointstate]
+    set_speedl(twist)
+  elif current_mode == MODE_POSE:
+    pose = p[params[2] / MULT_jointstate, params[3] / MULT_jointstate, params[4] / MULT_jointstate, params[5] / MULT_jointstate, params[6] / MULT_jointstate, params[7] / MULT_jointstate]
+    set_servo_setpoint(get_inverse_kin(pose, cmd_servo_q))
+  elif current_mode == MODE_FREEDRIVE:
+    if params[2] == FREEDRIVE_MODE_START:
+      textmsg("Entering freedrive mode")
+      freedrive_mode()
+    elif params[2] == FREEDRIVE_MODE_STOP:
+      textmsg("Leaving freedrive mode")
+      end_freedrive_mode()
+    end
+  end
+  # Tool contact is running, but hasn't been detected
+  if tool_contact_running == True and current_mode != MODE_TOOL_IN_CONTACT:
+    tool_contact_detection()
+  end
+end
+
 while control_mode > MODE_STOPPED:
   enter_critical
   params_mult = socket_read_binary_integer(REVERSE_INTERFACE_DATA_DIMENSION, "reverse_socket", read_timeout)
   if params_mult[0] > 0:
-
     # Convert read timeout from milliseconds to seconds
-    read_timeout = params_mult[1] / 1000.0 
+    read_timeout = params_mult[1] / 1000.0
+    new_control_mode = params_mult[REVERSE_INTERFACE_DATA_DIMENSION]
 
-    if control_mode != params_mult[REVERSE_INTERFACE_DATA_DIMENSION]:
-      # Clear remaining trajectory points
-      if control_mode == MODE_FORWARD:
-        kill thread_trajectory
-        if trajectory_points_left > 0:
-          clear_remaining_trajectory_points()
-          stopj(STOPJ_ACCELERATION)
-          socket_send_int(TRAJECTORY_RESULT_CANCELED, "trajectory_socket")
-        end
-        # Stop freedrive
-      elif control_mode == MODE_FREEDRIVE:
-        textmsg("Leaving freedrive mode")
-        end_freedrive_mode()
-      end
+    if control_mode != new_control_mode:
+      # The new control mode must be set before cleaning up the old one.
+      # This allows the running thread to terminate its while loop.
+      previous_mode = control_mode
+      control_mode = new_control_mode
 
-      # If tool is in contact, tool contact should be ended before switching control mode
-      if control_mode == MODE_TOOL_IN_CONTACT:
-        if tool_contact_running == False:
-          control_mode = params_mult[REVERSE_INTERFACE_DATA_DIMENSION]
-        end
+      cleanup_previous_mode(previous_mode)
+      
+      # Special handling for tool contact mode exit
+      if previous_mode == MODE_TOOL_IN_CONTACT and tool_contact_running == True:
+        # We are in tool contact mode, but the user wants to switch.
+        # We must wait for the user to explicitly end the tool contact running state.
+        # Therefore, we revert the control_mode change and wait.
+        control_mode = previous_mode
       else:
-        control_mode = params_mult[REVERSE_INTERFACE_DATA_DIMENSION]
-        join thread_move
-      end
-      if control_mode == MODE_SERVOJ:
-        cmd_servo_q = get_joint_positions()
-        thread_move = run servoThread()
-      elif control_mode == MODE_SPEEDJ:
-        thread_move = run speedThread()
-      elif control_mode == MODE_FORWARD:
-        kill thread_move
-        stopj(STOPJ_ACCELERATION)
-      elif control_mode == MODE_SPEEDL:
-        thread_move = run speedlThread()
-      elif control_mode == MODE_POSE:
-        cmd_servo_q = get_joint_positions()
-        thread_move = run servoThreadP()
+        initialize_new_mode(new_control_mode)
       end
     end
 
-    # Update the motion commands with new parameters
-    if control_mode == MODE_SERVOJ:
-      q = [params_mult[2] / MULT_jointstate, params_mult[3] / MULT_jointstate, params_mult[4] / MULT_jointstate, params_mult[5] / MULT_jointstate, params_mult[6] / MULT_jointstate, params_mult[7] / MULT_jointstate]
-      set_servo_setpoint(q)
-    elif control_mode == MODE_SPEEDJ:
-      qd = [params_mult[2] / MULT_jointstate, params_mult[3] / MULT_jointstate, params_mult[4] / MULT_jointstate, params_mult[5] / MULT_jointstate, params_mult[6] / MULT_jointstate, params_mult[7] / MULT_jointstate]
-      set_speed(qd)
-    elif control_mode == MODE_FORWARD:
-      if params_mult[2] == TRAJECTORY_MODE_RECEIVE:
-        kill thread_trajectory
-        clear_remaining_trajectory_points()
-        trajectory_points_left = params_mult[3]
-        thread_trajectory = run trajectoryThread()
-      elif params_mult[2] == TRAJECTORY_MODE_CANCEL:
-        textmsg("cancel received")
-        kill thread_trajectory
-        clear_remaining_trajectory_points()
-        stopj(STOPJ_ACCELERATION)
-        socket_send_int(TRAJECTORY_RESULT_CANCELED, "trajectory_socket")
-      end
-    elif control_mode == MODE_SPEEDL:
-      twist = [params_mult[2] / MULT_jointstate, params_mult[3] / MULT_jointstate, params_mult[4] / MULT_jointstate, params_mult[5] / MULT_jointstate, params_mult[6] / MULT_jointstate, params_mult[7] / MULT_jointstate]
-      set_speedl(twist)
-    elif control_mode == MODE_POSE:
-      pose = p[params_mult[2] / MULT_jointstate, params_mult[3] / MULT_jointstate, params_mult[4] / MULT_jointstate, params_mult[5] / MULT_jointstate, params_mult[6] / MULT_jointstate, params_mult[7] / MULT_jointstate]
-      set_servo_setpoint(get_inverse_kin(pose, cmd_servo_q))
-    elif control_mode == MODE_FREEDRIVE:
-      if params_mult[2] == FREEDRIVE_MODE_START:
-        textmsg("Entering freedrive mode")
-        freedrive_mode()
-      elif params_mult[2] == FREEDRIVE_MODE_STOP:
-        textmsg("Leaving freedrive mode")
-        end_freedrive_mode()
-      end
-    end
-    # Tool contact is running, but hasn't been detected
-    if tool_contact_running == True and control_mode != MODE_TOOL_IN_CONTACT:
-      tool_contact_detection()
-    end
+    process_command(control_mode, params_mult)
+
   else:
     textmsg("Socket timed out waiting for command on reverse_socket. The script will exit now.")
     control_mode = MODE_STOPPED
