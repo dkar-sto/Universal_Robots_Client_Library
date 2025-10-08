@@ -49,6 +49,7 @@ enum class MotionType : uint8_t
   OPTIMOVEJ = 4,
   OPTIMOVEL = 5,
   SPLINE = 51,
+  CONFIRMATION = 52,
   UNKNOWN = 255
 };
 
@@ -205,6 +206,17 @@ struct OptimoveLPrimitive : public MotionPrimitive
   bool validate() const override;
 
   urcl::Pose target_pose;
+};
+
+struct ConfirmationPrimitive : public MotionPrimitive
+{
+  ConfirmationPrimitive(const std::string& message)
+  {
+    type = MotionType::CONFIRMATION;
+    this->message = message;
+  }
+
+  std::string message;
 };
 }  // namespace control
 }  // namespace urcl

@@ -228,6 +228,22 @@ protected:
             (double)spl.acc[0] / control::TrajectoryPointInterface::MULT_JOINTSTATE,
             (double)spl.vel[0] / control::TrajectoryPointInterface::MULT_JOINTSTATE);
       }
+      else if (spl.motion_type == static_cast<int32_t>(control::MotionType::CONFIRMATION))
+      {
+        size_t remainder = sizeof(int32_t);
+        uint8_t buf[sizeof(int32_t)];
+        uint8_t* b_pos = buf;
+        size_t read_bytes = 0;
+        TCPSocket::read(b_pos, remainder, read_bytes);
+        int32_t msg_len;
+        std::memcpy(&msg_len, b_pos, sizeof(int32_t));
+        msg_len = be32toh(msg_len);
+
+        std::string msg(msg_len, '\0');
+        TCPSocket::read((uint8_t*)msg.data(), msg_len, read_bytes);
+
+        return std::make_shared<control::ConfirmationPrimitive>(msg);
+      }
       else if (spl.motion_type == static_cast<int32_t>(control::MotionType::MOVEC))
       {
         return std::make_shared<control::MoveCPrimitive>(
@@ -552,6 +568,18 @@ TEST_F(TrajectoryPointInterfaceTest, send_movel)
   EXPECT_EQ(received_primitive->velocity, velocity);
   EXPECT_EQ(received_primitive->acceleration, acceleration);
   EXPECT_EQ(received_primitive->duration, duration);
+}
+
+TEST_F(TrajectoryPointInterfaceTest, send_confirmation)
+{
+  std::string message = "Please confirm the action.";
+  auto primitive = std::make_shared<control::ConfirmationPrimitive>(message);
+
+  traj_point_interface_->writeMotionPrimitive(primitive);
+  auto received_primitive = client_->getMotionPrimitive();
+  EXPECT_EQ(received_primitive->type, control::MotionType::CONFIRMATION);
+  auto confirmation_primitive = std::static_pointer_cast<control::ConfirmationPrimitive>(received_primitive);
+  EXPECT_EQ(confirmation_primitive->message, message);
 }
 
 TEST_F(TrajectoryPointInterfaceTest, send_movep)

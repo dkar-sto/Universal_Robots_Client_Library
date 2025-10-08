@@ -7,6 +7,7 @@ if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(WITH_ASAN "Compile with address sanitizer support" OFF)
+option(BUILDING_TESTS "Build tests" ON)
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 if(MSVC)

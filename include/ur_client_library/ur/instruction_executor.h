@@ -169,6 +169,17 @@ public:
                  const double velocity_fraction = 0.3, const double blend_radius = 0);
 
   /**
+   * \brief Request a confirmation from the user.
+   *
+   * This will show a popup on the polyscope with a "Yes" and "No" button. The function will block until the user
+   * presses one of the buttons.
+   *
+   * \param message The message to show in the popup.
+   * \return True if the user pressed "Yes", false if the user pressed "No".
+   */
+  bool requestConfirmation(const std::string& message);
+
+  /**
    * \brief Cancel the current motion.
    *
    * If no motion is running, false will be returned.

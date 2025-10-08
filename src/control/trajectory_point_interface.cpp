@@ -111,6 +111,11 @@ bool TrajectoryPointInterface::writeMotionPrimitive(const std::shared_ptr<contro
       third_block.fill(primitive->acceleration);
       break;
     }
+    case MotionType::CONFIRMATION:
+    {
+      // For this motion type, we only send the type and then the message string separately.
+      break;
+    }
     case MotionType::MOVEC:
     {
       auto movec_primitive = std::static_pointer_cast<control::MoveCPrimitive>(primitive);
@@ -201,7 +206,18 @@ bool TrajectoryPointInterface::writeMotionPrimitive(const std::shared_ptr<contro
   size_t written;
 
   // We stored the data in a int32_t vector, but write needs a uint8_t buffer
-  return server_.write(client_fd_, (uint8_t*)buffer.data(), buffer.size() * sizeof(int32_t), written);
+  bool result = server_.write(client_fd_, (uint8_t*)buffer.data(), buffer.size() * sizeof(int32_t), written);
+
+  if (primitive->type == MotionType::CONFIRMATION)
+  {
+    auto confirmation_primitive = std::static_pointer_cast<control::ConfirmationPrimitive>(primitive);
+    int32_t msg_len = htobe32(confirmation_primitive->message.length());
+    result &= server_.write(client_fd_, (uint8_t*)&msg_len, sizeof(msg_len), written);
+    result &= server_.write(client_fd_, (uint8_t*)confirmation_primitive->message.c_str(),
+                          confirmation_primitive->message.length(), written);
+  }
+
+  return result;
 }
 
 bool TrajectoryPointInterface::writeTrajectoryPoint(const vector6d_t* positions, const float acceleration,

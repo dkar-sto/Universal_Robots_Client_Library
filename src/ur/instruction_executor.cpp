@@ -132,6 +132,13 @@ bool urcl::InstructionExecutor::optimoveL(const urcl::Pose& target, const double
   return executeMotion({ std::make_shared<control::OptimoveLPrimitive>(target, blend_radius, acceleration, velocity) });
 }
 
+bool urcl::InstructionExecutor::requestConfirmation(const std::string& message)
+{
+  std::vector<std::shared_ptr<control::MotionPrimitive>> motion_sequence;
+  motion_sequence.push_back(std::make_shared<control::ConfirmationPrimitive>(message));
+  return executeMotion(motion_sequence);
+}
+
 bool urcl::InstructionExecutor::cancelMotion()
 {
   cancel_requested_ = true;

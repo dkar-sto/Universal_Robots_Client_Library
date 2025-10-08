@@ -40,6 +40,7 @@ MOTION_TYPE_MOVEC = 3
 MOTION_TYPE_OPTIMOVEJ = 4
 MOTION_TYPE_OPTIMOVEL = 5
 MOTION_TYPE_SPLINE = 51
+MOTION_TYPE_CONFIRMATION = 52
 TRAJECTORY_DATA_DIMENSION = 3 * 6 + 1
 
 TRAJECTORY_RESULT_SUCCESS = 0
@@ -133,6 +134,16 @@ def targetWithinLimits(step_start, step_end, time):
     violation_popup_counter = 0
   end
   return True
+end
+
+def socket_read_string(len, socket_name="reverse_socket"):
+  local i = 0
+  local s = ""
+  while i < len:
+    s = str_cat(s, socket_read_byte(socket_name))
+    i = i + 1
+  end
+  return s
 end
 
 def trajectory_result_to_str(trajectory_result):
@@ -534,6 +545,14 @@ thread trajectoryThread():
         spline_qdd = [0, 0, 0, 0, 0, 0]
         spline_qd = [0, 0, 0, 0, 0, 0]
 
+      elif raw_point[INDEX_POINT_TYPE] == MOTION_TYPE_CONFIRMATION:
+        textmsg("Received confirmation request")
+        msg_len = socket_read_binary_integer(1, "trajectory_socket")[0]
+        msg = socket_read_string(msg_len, "trajectory_socket")
+        if not request_boolean_from_primary_client(msg):
+          trajectory_result = TRAJECTORY_RESULT_CANCELED
+        end
+
       # Joint spline point
       elif raw_point[INDEX_POINT_TYPE] == MOTION_TYPE_SPLINE:
 
@@ -545,7 +564,7 @@ thread trajectoryThread():
           # reset old acceleration
           spline_qdd = [0, 0, 0, 0, 0, 0]
 
-          # Quintic spline
+        # Quintic spline
         elif raw_point[INDEX_SPLINE_TYPE] == SPLINE_QUINTIC:
           qd = [ raw_point[7] / MULT_jointstate, raw_point[8] / MULT_jointstate, raw_point[9] / MULT_jointstate, raw_point[10] / MULT_jointstate, raw_point[11] / MULT_jointstate, raw_point[12] / MULT_jointstate]
           qdd = [ raw_point[13]/ MULT_jointstate, raw_point[14]/ MULT_jointstate, raw_point[15]/ MULT_jointstate, raw_point[16]/ MULT_jointstate, raw_point[17]/ MULT_jointstate, raw_point[18]/ MULT_jointstate]
