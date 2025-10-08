@@ -208,6 +208,9 @@ struct OptimoveLPrimitive : public MotionPrimitive
   urcl::Pose target_pose;
 };
 
+static constexpr size_t MAX_MESSAGE_INT32_LENGTH = 20;
+static constexpr size_t MAX_CONFIRMATION_MESSAGE_LENGTH = MAX_MESSAGE_INT32_LENGTH * sizeof(int32_t);
+
 struct ConfirmationPrimitive : public MotionPrimitive
 {
   ConfirmationPrimitive(const std::string& message)
@@ -215,6 +218,8 @@ struct ConfirmationPrimitive : public MotionPrimitive
     type = MotionType::CONFIRMATION;
     this->message = message;
   }
+
+  bool validate() const override;
 
   std::string message;
 };

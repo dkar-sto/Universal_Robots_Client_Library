@@ -34,6 +34,11 @@
 namespace urcl::control
 {
 
+bool ConfirmationPrimitive::validate() const
+{
+  return message.length() <= MAX_CONFIRMATION_MESSAGE_LENGTH;
+}
+
 bool MotionPrimitive::validate() const
 {
   if (blend_radius < 0)

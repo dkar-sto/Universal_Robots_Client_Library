@@ -29,6 +29,7 @@
 #include <ur_client_library/control/trajectory_point_interface.h>
 #include <ur_client_library/exceptions.h>
 #include <math.h>
+#include <cassert>
 #include <cstdint>
 #include <stdexcept>
 #include "ur_client_library/comm/socket_t.h"
@@ -72,6 +73,25 @@ bool TrajectoryPointInterface::writeMotionPrimitive(const std::shared_ptr<contro
   {
     return false;
   }
+  static constexpr size_t type_index = 20;
+
+  if (primitive->type == MotionType::CONFIRMATION)
+  {
+    auto confirmation_primitive = std::static_pointer_cast<control::ConfirmationPrimitive>(primitive);
+    std::array<uint8_t, MESSAGE_LENGTH * sizeof(int32_t)> buffer;
+    buffer.fill(0);
+
+    // Copy the message into the buffer
+    std::memcpy(buffer.data(), confirmation_primitive->message.data(), confirmation_primitive->message.length());
+
+    // Set the motion type at the end of the message payload
+    int32_t type = htobe32(static_cast<int32_t>(primitive->type));
+    std::memcpy(buffer.data() + type_index * sizeof(int32_t), &type, sizeof(int32_t));
+
+    size_t written;
+    return server_.write(client_fd_, buffer.data(), buffer.size(), written);
+  }
+
   std::array<int32_t, MESSAGE_LENGTH> buffer;
 
   // We write three blocks of 6 doubles and some additional data
@@ -109,11 +129,6 @@ bool TrajectoryPointInterface::writeMotionPrimitive(const std::shared_ptr<contro
       };
       second_block.fill(primitive->velocity);
       third_block.fill(primitive->acceleration);
-      break;
-    }
-    case MotionType::CONFIRMATION:
-    {
-      // For this motion type, we only send the type and then the message string separately.
       break;
     }
     case MotionType::MOVEC:
@@ -201,21 +216,13 @@ bool TrajectoryPointInterface::writeMotionPrimitive(const std::shared_ptr<contro
 
   val = static_cast<int32_t>(primitive->type);
   buffer[index] = htobe32(val);
+  assert(index == type_index);
   index++;
 
   size_t written;
 
   // We stored the data in a int32_t vector, but write needs a uint8_t buffer
   bool result = server_.write(client_fd_, (uint8_t*)buffer.data(), buffer.size() * sizeof(int32_t), written);
-
-  if (primitive->type == MotionType::CONFIRMATION)
-  {
-    auto confirmation_primitive = std::static_pointer_cast<control::ConfirmationPrimitive>(primitive);
-    int32_t msg_len = htobe32(confirmation_primitive->message.length());
-    result &= server_.write(client_fd_, (uint8_t*)&msg_len, sizeof(msg_len), written);
-    result &= server_.write(client_fd_, (uint8_t*)confirmation_primitive->message.c_str(),
-                          confirmation_primitive->message.length(), written);
-  }
 
   return result;
 }

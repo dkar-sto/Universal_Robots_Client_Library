@@ -136,16 +136,6 @@ def targetWithinLimits(step_start, step_end, time):
   return True
 end
 
-def socket_read_string(len, socket_name="reverse_socket"):
-  local i = 0
-  local s = ""
-  while i < len:
-    s = str_cat(s, socket_read_byte(socket_name))
-    i = i + 1
-  end
-  return s
-end
-
 def trajectory_result_to_str(trajectory_result):
   if trajectory_result == TRAJECTORY_RESULT_SUCCESS:
     return "SUCCESS"
@@ -547,8 +537,28 @@ thread trajectoryThread():
 
       elif raw_point[INDEX_POINT_TYPE] == MOTION_TYPE_CONFIRMATION:
         textmsg("Received confirmation request")
-        msg_len = socket_read_binary_integer(1, "trajectory_socket")[0]
-        msg = socket_read_string(msg_len, "trajectory_socket")
+        local msg = ""
+        local i = 1
+        # The message is packed into the first 18 integers of the buffer
+        while i < 19:
+          local val = raw_point[i]
+          if val != 0:
+            # Extract 4 characters from the integer (big-endian)
+            local c1 = to_str((val >> 24) & 0xFF)
+            local c2 = to_str((val >> 16) & 0xFF)
+            local c3 = to_str((val >> 8) & 0xFF)
+            local c4 = to_str(val & 0xFF)
+            msg = str_cat(msg, str_cat(c1, str_cat(c2, str_cat(c3, c4))))
+          end
+          i = i + 1
+        end
+
+        # Find the first null character and truncate the string
+        local null_pos = str_find(msg, to_str(0))
+        if null_pos != -1:
+          msg = str_sub(msg, 0, null_pos)
+        end
+
         if not request_boolean_from_primary_client(msg):
           trajectory_result = TRAJECTORY_RESULT_CANCELED
         end

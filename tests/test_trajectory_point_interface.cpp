@@ -230,17 +230,30 @@ protected:
       }
       else if (spl.motion_type == static_cast<int32_t>(control::MotionType::CONFIRMATION))
       {
-        size_t remainder = sizeof(int32_t);
-        uint8_t buf[sizeof(int32_t)];
-        uint8_t* b_pos = buf;
-        size_t read_bytes = 0;
-        TCPSocket::read(b_pos, remainder, read_bytes);
-        int32_t msg_len;
-        std::memcpy(&msg_len, b_pos, sizeof(int32_t));
-        msg_len = be32toh(msg_len);
+        // The message is packed into the first 18 integers of the buffer
+        std::array<int32_t, control::MAX_MESSAGE_INT32_LENGTH> msg_buf;
+        // copy spl.pos into msg_buf
+        std::copy(spl.pos.begin(), spl.pos.end(), msg_buf.begin());
+        // copy spl.vel into msg_buf
+        std::copy(spl.vel.begin(), spl.vel.end(), msg_buf.begin() + 6);
+        // copy spl.acc into msg_buf
+        std::copy(spl.acc.begin(), spl.acc.end(), msg_buf.begin() + 12);
 
-        std::string msg(msg_len, '\0');
-        TCPSocket::read((uint8_t*)msg.data(), msg_len, read_bytes);
+        msg_buf[18] = spl.goal_time;
+        msg_buf[19] = spl.blend_radius_or_spline_type;
+
+        for (auto& val : msg_buf)
+        {
+          // reverses readMessage's be32toh
+          val = htobe32(val);
+        }
+
+        std::string msg(reinterpret_cast<char*>(msg_buf.data()), sizeof(msg_buf));
+        size_t first_null = msg.find('\0');
+        if (first_null != std::string::npos)
+        {
+          msg.resize(first_null);
+        }
 
         return std::make_shared<control::ConfirmationPrimitive>(msg);
       }
@@ -576,10 +589,11 @@ TEST_F(TrajectoryPointInterfaceTest, send_confirmation)
   auto primitive = std::make_shared<control::ConfirmationPrimitive>(message);
 
   traj_point_interface_->writeMotionPrimitive(primitive);
+
   auto received_primitive = client_->getMotionPrimitive();
   EXPECT_EQ(received_primitive->type, control::MotionType::CONFIRMATION);
-  auto confirmation_primitive = std::static_pointer_cast<control::ConfirmationPrimitive>(received_primitive);
-  EXPECT_EQ(confirmation_primitive->message, message);
+  EXPECT_STREQ(std::static_pointer_cast<control::ConfirmationPrimitive>(received_primitive)->message.c_str(),
+               message.c_str());
 }
 
 TEST_F(TrajectoryPointInterfaceTest, send_movep)
