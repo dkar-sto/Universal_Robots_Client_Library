@@ -81,6 +81,7 @@ global extrapolate_count = 0
 global extrapolate_max_count = 0
 global control_mode = MODE_UNINITIALIZED
 global trajectory_points_left = 0
+global trajectory_point_time_remainder = 0.0
 global spline_qdd = [0, 0, 0, 0, 0, 0]
 global spline_qd = [0, 0, 0, 0, 0, 0]
 global tool_contact_running = False
@@ -322,8 +323,8 @@ def jointSplineRun(coefficients1, coefficients2, coefficients3, coefficients4, c
   local slowing_down_time = 0.0
 
   # Interpolate the spline in whole time steps
-  while (splineTotalTravelTime - splineTimerTraveled) > get_steptime():
-    local time_left = splineTotalTravelTime - splineTimerTraveled
+  while (splineTotalTravelTime + trajectory_point_time_remainder - splineTimerTraveled) > get_steptime():
+    local time_left = splineTotalTravelTime + trajectory_point_time_remainder - splineTimerTraveled
 
     # Maximum deceleration in rad/s^2
     local max_deceleration = 15
@@ -376,15 +377,16 @@ def jointSplineRun(coefficients1, coefficients2, coefficients3, coefficients4, c
     scaling_factor = 0.0
   end
 
-  # Last part of the spline which uses less than one time step
-  local timeLeftToTravel = splineTotalTravelTime - splineTimerTraveled
+  trajectory_point_time_remainder = splineTotalTravelTime + trajectory_point_time_remainder - splineTimerTraveled
+  # # Last part of the spline which uses less than one time step
+  # local timeLeftToTravel = splineTotalTravelTime - splineTimerTraveled
 
-  # To round off the float to the steptime step when it is very close to that number (1e-15)
-  if timeLeftToTravel == get_steptime():
-    timeLeftToTravel = get_steptime()
-  end
+  # # To round off the float to the steptime step when it is very close to that number (1e-15)
+  # if timeLeftToTravel == get_steptime():
+  #   timeLeftToTravel = get_steptime()
+  # end
 
-  jointSplineStep(coefficients1, coefficients2, coefficients3, coefficients4, coefficients5, splineTotalTravelTime, timeLeftToTravel, scaling_factor, is_slowing_down)
+  # jointSplineStep(coefficients1, coefficients2, coefficients3, coefficients4, coefficients5, splineTotalTravelTime, timeLeftToTravel, scaling_factor, is_slowing_down)
 end
 
 def jointSplineStep(coefficients1, coefficients2, coefficients3, coefficients4, coefficients5, splineTimerTraveled, timestep, scaling_factor, is_slowing_down = False):
@@ -481,6 +483,10 @@ thread trajectoryThread():
     #reading trajectory point + blend radius + type of point (cartesian/joint based)
     local raw_point = socket_read_binary_integer(TRAJECTORY_DATA_DIMENSION+1+1, "trajectory_socket", timeout)
     trajectory_points_left = trajectory_points_left - 1
+
+    if raw_point[INDEX_POINT_TYPE] != MOTION_TYPE_SPLINE:
+      trajectory_point_time_remainder = 0.0
+    end
 
     if raw_point[0] > 0:
       local q = [raw_point[1] / MULT_jointstate, raw_point[2] / MULT_jointstate, raw_point[3] / MULT_jointstate, raw_point[4] / MULT_jointstate, raw_point[5] / MULT_jointstate, raw_point[6] / MULT_jointstate]
@@ -789,6 +795,7 @@ while control_mode > MODE_STOPPED:
           stopj(STOPJ_ACCELERATION)
           socket_send_int(TRAJECTORY_RESULT_CANCELED, "trajectory_socket")
         end
+        trajectory_point_time_remainder = 0.0
         # Stop freedrive
       elif control_mode == MODE_FREEDRIVE:
         textmsg("Leaving freedrive mode")
