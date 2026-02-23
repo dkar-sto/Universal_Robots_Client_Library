@@ -74,24 +74,12 @@ jobs:
         run: cd build && ctest --output-on-failure --output-junit junit.xml
         env:
           URSIM_VERSION: ${{matrix.env.URSIM_VERSION}}
-      - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
       - name: run examples
         run: ./run_examples.sh "192.168.56.101" 1
       - name: install gcovr
         run: sudo apt-get install -y gcovr
       - name: gcovr
         run: cd build && gcovr -r .. --gcov-ignore-parse-errors negative_hits.warn_once_per_file --exclude "../3rdparty"
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          flags: ${{ matrix.env.ROBOT_MODEL }}-${{ matrix.env.URSIM_VERSION }}
       - name: Generate URSim log files
         if: ${{ always() &&  steps.check_polyscopex.outputs.is_polyscopex  == 'false' }}
         run: |
@@ -142,9 +130,3 @@ jobs:
         env:
           BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
         run: bundle exec bashcov --skip-uncovered bats tests/test_start_ursim.bats
-      - name: Upload reports to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          flags: start_ursim
