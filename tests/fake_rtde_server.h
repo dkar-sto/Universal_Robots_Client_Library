@@ -180,6 +180,9 @@ private:
 
   void sendDataLoop();
   std::atomic<bool> send_loop_running_;
+  // Wakes the sender from its wait between packages, so stopping it does not take up to one output period.
+  std::mutex send_loop_mutex_;
+  std::condition_variable send_loop_cv_;
 
   double output_frequency_;
 
