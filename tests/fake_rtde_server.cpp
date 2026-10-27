@@ -1204,7 +1204,11 @@ void RTDEServer::startSendingDataPackages()
 void RTDEServer::stopSendingDataPackages()
 {
   std::lock_guard<std::mutex> thread_lock(thread_control_mutex_);
-  send_loop_running_ = false;
+  {
+    std::lock_guard<std::mutex> loop_lock(send_loop_mutex_);
+    send_loop_running_ = false;
+  }
+  send_loop_cv_.notify_all();
   if (send_thread_.joinable())
   {
     URCL_LOG_INFO("Stop sending data.");
@@ -1226,7 +1230,9 @@ void RTDEServer::sendDataLoop()
       size_t written = 0;
       server_.write(client_socket_, buffer, size, written);
     }
-    std::this_thread::sleep_for(std::chrono::duration<double>(1.0 / output_frequency_));
+    std::unique_lock<std::mutex> loop_lock(send_loop_mutex_);
+    send_loop_cv_.wait_for(loop_lock, std::chrono::duration<double>(1.0 / output_frequency_),
+                           [this] { return !send_loop_running_; });
   }
 }
 
